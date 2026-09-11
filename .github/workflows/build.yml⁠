@@ -1,0 +1,38 @@
+name: Build Madeira IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Build Tools
+        run: |
+          brew install cmake ninja
+
+      - name: Run Build Script
+        run: |
+          chmod +x build/build.sh
+          ./build/build.sh
+
+      - name: Compile App with xcodebuild
+        run: |
+          xcodebuild -project Madeira.xcodeproj -scheme Madeira -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO BUILD_DIR=build/out
+
+      - name: Package into IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/out/Release-iphoneos/Madeira.app Payload/
+          zip -r Madeira.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-IPA
+          path: Madeira.ipa

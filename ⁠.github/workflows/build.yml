@@ -1,0 +1,88 @@
+name: Build Madeira IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install System Dependencies
+        run: |
+          brew install cmake ninja bison flex gnu-sed
+
+      - name: Download & Setup Toolchains & Dependencies
+        run: |
+          mkdir -p toolchains
+          cd toolchains
+          
+          # Download required llvm-mingw compiler toolchain
+          curl -L -O https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-macos-universal.tar.xz || true
+          tar -xf llvm-mingw-*.tar.xz || true
+          
+          # Link toolchain so build scripts can resolve it
+          ln -s llvm-mingw-* llvm-mingw-20260421-ucrt-macos-universal || true
+          
+          # Clone FreeType dependency
+          cd ..
+          if [ ! -d "deps/freetype" ]; then
+            mkdir -p deps
+            git clone https://gitlab.freedesktop.org/freetype/freetype.git deps/freetype || true
+          fi
+
+      - name: Run Build Scripts
+        run: |
+          export PATH="$PWD/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+          export MINGW_TRIPLE="x86_64-w64-mingw32"
+          
+          find build -name "*.sh" -exec chmod +x {} \;
+          
+          for script in build/*/build.sh; do
+            if [ -f "$script" ]; then
+              echo "Executing $script..."
+              bash "$script" || echo "Warning: $script experienced failures."
+            fi
+          done
+
+      - name: Locate and Compile Xcode Project
+        run: |
+          PROJ_PATH=$(find . -maxdepth 3 -name "*.xcodeproj" | head -n 1)
+          if [ -z "$PROJ_PATH" ]; then
+            echo "Error: No .xcodeproj found in repository!"
+            exit 1
+          fi
+          echo "Found Xcode project at: $PROJ_PATH"
+          
+          # Extract the scheme name dynamically from the project
+          SCHEME_NAME=$(xcodebuild -project "$PROJ_PATH" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | xargs | awk '{print $1}')
+          if [ -z "$SCHEME_NAME" ]; then
+            SCHEME_NAME="Madeira"
+          fi
+          echo "Using scheme: $SCHEME_NAME"
+          
+          xcodebuild -project "$PROJ_PATH" -scheme "$SCHEME_NAME" -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO BUILD_DIR=build/out
+
+      - name: Package into IPA
+        run: |
+          mkdir -p Payload
+          
+          # Find and copy the built .app bundle from build/out
+          APP_PATH=$(find build/out -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Built .app bundle not found!"
+            exit 1
+          fi
+          
+          cp -r "$APP_PATH" Payload/
+          zip -r Madeira.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-IPA
+          path: Madeira.ipa

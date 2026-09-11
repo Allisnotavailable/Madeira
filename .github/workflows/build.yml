@@ -25,10 +25,10 @@ jobs:
           PROJ_PATH=$(find . -maxdepth 3 -name "*.xcodeproj" | head -n 1)
           [ -z "$PROJ_PATH" ] && { echo "Error: No .xcodeproj found!"; exit 1; }
 
-          SCHEME_NAME=$(xcodebuild -project "$PROJ_PATH" -list 2>/dev/null | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1)
+          SCHEME_NAME=$(xcodebuild -project "$PROJ_PATH" -list 2>/dev/null | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
           SCHEME_NAME=${SCHEME_NAME:-Madeira}
 
-          echo "Building $PROJ_PATH with scheme $SCHEME_NAME..."
+          echo "Building $PROJ_PATH with scheme '$SCHEME_NAME'..."
 
           xcodebuild -project "$PROJ_PATH" \
             -scheme "$SCHEME_NAME" \

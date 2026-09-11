@@ -1,28 +1,54 @@
-# Locate the project file
-PROJ_PATH=$(find . -maxdepth 3 -name "*.xcodeproj" | head -n 1)
+name: Build Madeira IPA
 
-if [ -z "$PROJ_PATH" ]; then
-  echo "Error: No .xcodeproj found in repository!"
-  exit 1
-fi
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
-echo "Found Xcode project at: $PROJ_PATH"
+jobs:
+  build:
+    runs-on: macos-latest
 
-# Extract scheme name or fall back to Madeira
-SCHEME_NAME=$(xcodebuild -project "$PROJ_PATH" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | xargs | awk '{print $1}')
-if [ -z "$SCHEME_NAME" ]; then
-  SCHEME_NAME="Madeira"
-fi
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-echo "Using scheme: $SCHEME_NAME"
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
-# Resolve absolute path for build directory
-ABS_BUILD_DIR="$(pwd)/build/out"
+      - name: Build iOS App
+        run: |
+          PROJ_PATH=$(find . -maxdepth 3 -name "*.xcodeproj" | head -n 1)
+          [ -z "$PROJ_PATH" ] && { echo "Error: No .xcodeproj found!"; exit 1; }
 
-# Execute xcodebuild
-xcodebuild -project "$PROJ_PATH" \
-  -scheme "$SCHEME_NAME" \
-  -sdk iphoneos \
-  -configuration Release \
-  CODE_SIGNING_ALLOWED=NO \
-  BUILD_DIR="$ABS_BUILD_DIR"
+          SCHEME_NAME=$(xcodebuild -project "$PROJ_PATH" -list 2>/dev/null | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1)
+          SCHEME_NAME=${SCHEME_NAME:-Madeira}
+
+          echo "Building $PROJ_PATH with scheme $SCHEME_NAME..."
+
+          xcodebuild -project "$PROJ_PATH" \
+            -scheme "$SCHEME_NAME" \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_DIR="$(pwd)/build/out"
+
+      - name: Package Payload and Create IPA
+        run: |
+          mkdir -p build/out/Payload
+          APP_PATH=$(find build/out -type d -name "*.app" | head -n 1)
+          [ -z "$APP_PATH" ] && { echo "Error: No .app binary found after build!"; exit 1; }
+
+          cp -R "$APP_PATH" build/out/Payload/
+          cd build/out
+          zip -r Madeira.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-IPA
+          path: build/out/Madeira.ipa
